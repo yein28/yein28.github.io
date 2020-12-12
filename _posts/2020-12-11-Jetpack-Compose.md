@@ -92,3 +92,79 @@ fun PreviewGreeting() {
 
 미리보기를 업데이트 하고 싶다면 preview 윈도우 상단의 refresh 버튼을 클릭하면 됨
 
+
+
+### Lesson 2: Lyaouts
+
+UI element 들은 계층적이며, element들은 다른 element들에 포함된다. 
+
+Compose에서, 계층적인 UI를 composable 함수를 다른 composable 함수 내에서 호출함으로써 구성할 수 있다. 
+
+
+
+#### Start with some Text
+
+액티비티로 돌아가서, `Greeting()` 함수를 새로운 `NewsStroy()` 함수로 교체한다. 남은 튜토리얼 동안, `NewsSotry()` 함수를 수정할 것이며 더이상 `Activity` 내 코드에 손댈필요 없다. 
+
+이는 앱에서 호출하지 않는 분리된 preview 함수를 만드는 좋은 예제 이다.
+
+전용 preview 함수를 가지는것은 퍼포먼스를 향상시키고, 나중에 여러 preview를 쉽게 설정할 수 있다. 
+
+아무것도 하지 않지만 `NewsStory`를 호출하는 default preview 함수를 만든다. 튜토리얼 동안 `NewsStory()`에 변경이 생기면 preview 에서 변경을 반영할것이다.
+
+아래 코드는 content view 내에서 세가지 text element를 만든다. 그러나, 우리는 그들을 어떻게 배치할지 아무런 정보도 제공하지 않았기 때문에, 텍스트 엘리먼트들은 text를 읽을 수 없도록 각각 상단에 그려질것이다.
+
+
+
+#### Using a Column
+
+`Column` 함수는 element들을 수직으로 쌓게 해준다. 디폴트 세팅은 모든 children들을 간격없이 쌓는다.
+
+컬럼 자체는 content view의 왼쪽 상단 모서리에 배치된다.
+
+
+
+#### Add style setting to the column
+
+`Column` 호출에 파라미터를 넘기면, 컬럼의 사이즈와 위치를 구성할 수 있고, 컬럼의 children을 어떻게 배치할지 정할 수 있다.
+
+- `modifier` : 레이아웃을 구성하게 해줌.
+
+  ```kotlin
+  Column(
+    modifier = Modifier.padding(16.dp) // ex 16dp 패딩을 추가
+  ) { ... }
+  ```
+
+  
+
+#### Add a picture
+
+텍스트 상단에 그래픽을 추가하고 싶다. `Resource Manager`를 사용해서 앱의 drawable에 추가할 수 있다.
+
+이제 `NewsStory()` 함수를 수정해서, `Column`  내에 `Image()` 를 사용해 그래픽을 추가한다.이 composable은 `foundation` 패키지에서 사용가능하다. 지금은 이미지가 제대로 균형잡혀 있지않지만, 다음 스텝에서 수정할것이다.
+
+`val image = imageResource(id = R.drawable.header)`
+
+
+
+그래픽이 레이아웃에 추가되었지만, 적절한 사이즈가 아니다. 그래픽의 스타일을 변경하기위해서 `Image()` 호출에 size `Modifier` 를 넘긴다.
+
+- `preferredHeight(180.dp)` : 이미지의 height 를 정의
+- `fillMaxWidth` : 이미지가 속한 레이아웃을 꽉 채워야 함을 명시
+
+또 `contentScale` 파라미터를 `Image()` 함께 넘겨주어야 한다. 
+
+-  `contentScale = ContentScale.Crop` : 그래픽이 column의 width를 꽉 채워야함을 명시, 그리고 필요하다면 적절한 높이로 crop 한다.
+
+```kotlin
+val imageModifier = Modifier.preferredHeight(180.dp).fillMaxWidth()
+Image(image, modifier = imageModifier, contentScale = ContentScale.Crop)
+```
+
+상단과 그래픽 사이를 `Spacer` 를 추가해서 분리한다.
+
+
+
+
+
