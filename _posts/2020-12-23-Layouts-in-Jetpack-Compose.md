@@ -55,11 +55,11 @@ fun Button(
 
 Compose 에서는 Top App Bar같은 복잡한 구조에서 Slot을 헤비하게 사용하고 있음
 
-<img src="/assets/Screen Shot 2020-12-23 at 4.12.57 PM" width=500px >
+<img src="/assets/1.png" width=500px\>
 
 타이틀을 포함해서 많은 항목들을 커스텀할 수 있음
 
-<img src="/assets/Screen Shot 2020-12-23 at 4.14.00 PM" width=500px >
+<img src="/assets/2.png" width=500px\>
 
 예시
 
