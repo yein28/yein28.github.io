@@ -276,3 +276,122 @@ fun MyOwnColumn(
 }
 ```
 
+
+
+## Complex custom layout
+
+Owl 예제 앱의 staggered grid layout을 만들어 볼 것
+
+<img src="/assets/4.png" width="500" >
+
+Owl의 staggered gird 는 아이템을 수직으로 배치하고 n개의 row로 colum을 채움
+
+custom layout을 사용하면 staggered grid에 있는 모든 아이템의 높이를 제한할 수 있음
+
+다른 orientation에서 gird를 재활용하려면, 화면에 표시할 row의 갯수를 파라미터로 받아야 함
+
+```kotlin
+@Composable
+fun StaggeredGrid(
+	modifier: Modifier = Modifier,
+  rows: Int = 3,
+  children: @Composable () -> Unit
+) {
+  Layout(
+  	modifier = modifier,
+    children = children
+  ) { measurables, constraints ->
+    // 주어진 constrains로 자식을 measure하고 배치하는 로직은 여기 들어감 
+  }
+}
+```
+
+첫 번째로 할 일은 자식을 measure하는 것, 자식은 오직 한번만 measure 할 수 있음을 기억
+
+이 예시에서는, we won't constrain our child views further. 자식을 measure 할때, 반드시 각 row의 `width` 와 max `height` 를 추적해야함.
+
+```kotlin
+Layout(
+	children = children,
+  modifier = modifier
+) { measurable, constraints ->
+   val rowWidths = IntArray(rows) { 0 }  // 각 row의 width를 저장
+   val rowMaxHeight = IntArray(rows) { 0 } // 각 row의 max height를 저장
+   
+   // Don't constrain child view further, 주어진 constraint로 child를 measure
+   // measured된 children 리스트
+   val placeables = mewaurables.mapIndexed { index, measurable ->
+     // 각 child를 measure
+     val placeable = measurable.measure(constraints)
+     
+     // 각 row의 width와 max height를 저장
+     val row = index % rows
+     rowWidths[row] = rowWidths[row] + placeable.width.value
+     rowMaxHeights[row] = kotlin.math.max(rowMaxHeights[row], placeable.height.value)   
+                                            
+     placeable                                       
+   }
+}
+```
+
+이제 로직 내에 measure된 chidren 리스트가 있음, 화면에 배치하기 전에 gird 크기를 측정해야 함 
+
+이미 각 row의 maximum height를 알고 있기 때문에,  Y 위치에서 각 row에 대한 위치를 계산할 수 있음
+
+Y 위치를 `rowY` 변수에 저장
+
+```kotlin
+Layout(
+    children = children,
+    modifier = modifier
+) { measurables, constraints ->
+    ... 
+
+    // 그리드의 너비는 가장 긴 row의 너비
+    val width = rowWidths.maxOrNull()
+        ?.coerceIn(constraints.minWidth.rangeTo(constraints.maxWidth)) ?: constraints.minWidth
+
+    // 그리드의 높이는 각 row의 가장 큰 element들의 합 
+    val height = rowMaxHeights.sumBy { it }
+        .coerceIn(constraints.minHeight.rangeTo(constraints.maxHeight))
+
+    // 이전 행의 높이의 누적을 기반으로 한 각 row의 Y 위치
+    val rowY = IntArray(rows) { 0 }
+    for (i in 1 until rows) {
+        rowY[i] = rowY[i-1] + rowMaxHeights[i-1]
+    }
+
+    ...
+}
+```
+
+마지막으로 `placeable.placeRelative(x,y)` 를 호출해서 자식을 화면에 배치 
+
+```kotlin
+Layout(
+	children = children,
+  modifier = modifier
+) { measurables, contraints ->
+  ...
+  // parent layout(grid) 사이즈를 지정
+  layout(width, height) {
+    val roxX = IntArray(rows) { 0 }
+    
+    placeables.forEachIndexed { index, placeable ->
+            val row = index % rows
+            placeable.placeRelative(
+                x = rowX[row],
+                y = rowY[row]
+            )
+            rowX[row] += placeable.width
+        }
+  }
+}
+```
+
+<img src="/assets/5.png" width="500" >
+
+
+
+## Layout modifiers under the hood
+
