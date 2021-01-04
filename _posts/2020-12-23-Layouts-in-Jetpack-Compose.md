@@ -395,3 +395,275 @@ Layout(
 
 ## Layout modifiers under the hood
 
+ recap
+
+- modifier를 사용해서 composable을 커스텀할 수 있음
+- 여러 modifier를 합치고 체이닝 할 수 있음
+
+다양한 modifier가 있지만, 이 섹션에서는 `LayoutModifier` 에 초점
+
+Composable은 자신의 콘텐츠에 대한 책임을 가지며, composable의 작성자가 명시적으로 API를 노출하지 않는 한 parent가 inspect하거나 조작할 수 없음
+
+
+
+###  Analysing a modifier
+
+`Modifier` 와 `LayoutModifier` 는 공개 인터페이스이므로, 본인의 고유한 modifer를 만들 수 있음
+
+modifier를 더 이해하기위해 `Modifier.padding` 의 구현을 분석해보자
+
+
+
+`padding` 은 `LayoutModifier` 인터페이스를 구현하는 클래스에 의해 뒷받침되는 함수이며, `measure` 메소드를 오버라이드 함
+
+data 클래스이기때문에, `equals()` 를 구현하기때문에 recomposition시 비교될 수 있음
+
+```kotlin
+// How to create a modifier
+@Stable
+fun Modifier.padding(all: Dp) =
+    this then PaddingModifier(start = all, top = all, end = all, bottom = all, rtlAware = true)
+
+// Implementation detail
+private class PaddingModifier(
+    start: Dp = 0.dp,
+    top: Dp = 0.dp,
+    end: Dp = 0.dp,
+    bottom: Dp = 0.dp,
+    rtlAware: Boolean
+) : LayoutModifier {
+    override fun MeasureScope.measure(
+        measurable: Measurable,
+        constraints: Constraints
+    ): MeasureScope.MeasureResult {
+        val horizontal = start.toIntPx() + end.toIntPx()
+        val vertical = top.toIntPx() + bottom.toIntPx()
+
+        val placeable = measurable.measure(constraints.offset(-horizontal, -vertical))
+
+      	// 패딩이 적용된 새로운 width, height
+        val width = constraints.constrainWidth(placeable.width + horizontal)
+        val height = constraints.constrainHeight(placeable.height + vertical)
+        return layout(width, height) {
+            if (rtlAware) {
+                placeable.placeRelative(start.toIntPx(), top.toIntPx())
+            } else {
+                placeable.place(start.toIntPx(), top.toIntPx())
+            }
+        }
+    }
+}
+```
+
+
+
+### Order matters
+
+modifier를 체이닝해서 사용할때 그 순서는 영향을 미침
+
+첫째로, modifier는 constraint를 왼쪽에서 오른쪽으로 업데이트함, 그리고 크기를 오른쪽에서 왼쪽으로 리턴함
+
+예제
+
+```kotlin
+@Composable
+fun BodyContent(modifier: Modifier = Modifier) {
+    ScrollableRow(
+        modifier = modifier
+            .background(color = Color.LightGray)
+            .size(200.dp)
+            .padding(16.dp)
+    ) {
+        StaggeredGrid {
+            for (topic in topics) {
+                Chip(modifier = Modifier.padding(8.dp), text = topic)
+            }
+        }
+    }
+}
+```
+
+첫째로, modifier가 UI에 영향을 어떻게 끼치는지 보기위해 배경 색을 변경, 그리고 width와 height가 200dp가 되도록 제한, 마지막으로 text와 주변 사이에 공간을 넣기위해 padding을 추가
+
+constraint가 left-> right으로 전파되기 때문에, 해당 제약을 가지는 ScrollableRow의 content는  `200-16-16 = 168` dp로 measure됨
+
+최종적인 ScrollableRow의 사이즈, `modifySize` 체인이 오른쪽->왼쪽으로 수행된 이후에는 200x200dp 가 됨 
+
+| size(200.dp).padding(16.dp)            | padding(16.dp).size(200.dp)            |
+| -------------------------------------- | -------------------------------------- |
+| <img src="/assets/6.png" width="500" > | <img src="/assets/7.png" width="500" > |
+
+만약 modifier의 순서를 바꾸는 경우(padding먼저 이후 size) 다른 UI를 얻음
+
+이 케이스에서는, the constraints that `ScrollableRow` and `padding` had originally will be coerced to the `size` constraints to measure the children.
+
+따라서 `StaggeredGrid` 는 200dp 로 제약됨, padding modifier는 사이즈를 (200+16+16) = 232로 키움
+
+232x232dp가 `ScrollableRow`의 최종 사이즈가 됨
+
+
+
+## Constraint Layout
+
+Row, Colum, Box 대신 사용할 수 있는 좋은대안. 복잡한 레이아웃을 구현할 때 효과적
+
+> ViewSystem에서 ConstraintLayout은 flat한 뷰 계층을 만드는 것이 좋기때문에 크고 복잡한 레이아웃을 만들때 권장됨. 
+>
+> 하지만, 해당 장점은 Compose에서는 해당하지 않음. Compose도 깊은 레이아웃 계층을 효과적으로 다룰 수 있으므로 
+
+Compose에서 `ConstraintLayout` 은 DSL과 동작:
+
+- 참조는 `createRefs()` 혹은 `createRef()` 를 사용해서 만듦. ConstraintLayout내 각 컴포저블에는 연결된 참조가 있어야 함
+- 제약 조건은 `ConstraintAs()` modifier를 사용해 제공. 해당 modifier 는 참조를 매개변수로 사용하고 본문 람다에 constraint를 지정할 수 있게 함
+- constraint 는 `linkTo()` 또는 다름 유용한 메서드를 사용하여 지정 됨
+- `parent` 는 `ConstraintLayout` 컴포저블 자체에 대한 constraint를 지정하는데 사용할 수 있는 기존 참조
+
+
+
+간단한 예제로 시작:
+
+```kotlin
+@Composable
+fun ConstraintLayoutContent() {
+  ConstraintLayout{
+    val (button, text) = createRefs()
+    
+    Button(
+    	onClick = { /* Do something */ },
+      modifier = Modifier.constrainAs(button) {
+        top.linkTo(parent.top, margin = 16.dp)
+      }
+    ) {
+      Text("Button")
+    }
+    
+    Text("Text", Modifier.constrainAs(text) {
+      top.linkTo(button.bottom, margin = 16.dp)
+    })
+  }
+}
+```
+
+
+
+### Helpers
+
+DSL에서 guidelines, barriers와 chains도 지원함. 예시 :
+
+```kotlin
+@Composable
+fun ConstraintLayoutContent() {
+	ConstraintLayout {
+		val (button1, button2, text) = createRefs()
+    
+    Button(
+            onClick = { /* Do something */ },
+            modifier = Modifier.constrainAs(button1) {
+                top.linkTo(parent.top, margin = 16.dp)
+            }
+        ) { 
+            Text("Button 1") 
+        }
+
+        Text("Text", Modifier.constrainAs(text) {
+            top.linkTo(button1.bottom, margin = 16.dp)
+            centerAround(button1.end)
+        })
+
+        val barrier = createEndBarrier(button1, text)
+        Button(
+            onClick = { /* Do something */ },
+            modifier = Modifier.constrainAs(button2) {
+                top.linkTo(parent.top, margin = 16.dp)
+                start.linkTo(barrier)
+            }
+        ) { 
+            Text("Button 2") 
+        }
+	}
+}
+```
+
+<img src="/assets/8.png" width="500" >
+
+유의
+
+- barriers를 포함한 다른 모든 helpers는 `ConstraintLayout` body 내에서만 만들수 있음. `constrainAs` 내에서는 안됨
+- `linkTo` can be used to constrain with guidelines and barriers the same way it works for edges of layouts.
+
+
+
+### Customizing dimensions
+
+기본적으로, `ConstraintLayout` 의 자식은 content를 warp하기 위한 사이즈를 선택할 수 있음
+
+예를들어, 텍스트가 너무 긴 경우 화면 밖을 넘어갈 수 있음
+
+`width = Dimension.preferredWrapContent` 속성을 줘서 넘어가지 않게 할 수 있음
+
+가능한 `Dimension` 행동들은 다음과 같음:
+
+- `preferredWrapConent` - 레이아웃이 wrap content임.  해당 dimension의 constraint이 적용 됨
+- `wrapContent` - constraints가 허락하지 않더라도 wrap content
+- `fillToConstraints` -  해당 dimension의 constraints에 의해 정의된 공간을 채우기위해 expand됨
+- `preferredValue` - 해당 dimension의 constraint에 따라 고정된 dp 값을 가짐
+- `value` - 해당 dimension의 constraint와 관계없이 고정된 dp값
+
+또한 특정 `Dimension` 은 coerced될 수 있음
+
+`width = Dimension.preferredWrapContent.atLeat(100.dp)`
+
+
+
+### Decoupled API
+
+지금까지 예제에서는 constraints는 inline으로 명시됨. composable에 적용되는 modifier와 함께
+
+그러나 레이아웃에서 constraint를 분리하여 유지하는 것이 유용할 때가 있음
+
+- 화면의 configuration에 따라 constraint를 쉽게 변경하기위해 
+- 두개의 constraint set 에 애니메이션 추가
+
+이러한 케이스들을 위해, `ConstraintLayout` 을 다른 방법으로 사용할 수 있음
+
+1. `ConstraintSet` 을 `ConstraintLayout` 의 파라미터로 넘김
+2. `layoutId` modifier를 이용해서 `ConstraintSet` 에서 생성된 참조를 composable에 할당함
+
+```kotlin
+@Composable
+fun DecoupledConstraintLayout() {
+    WithConstraints {
+        val constraints = if (maxWidth < maxHeight) {
+            decoupledConstraints(margin = 16.dp) // Portrait constraints
+        } else {
+            decoupledConstraints(margin = 32.dp) // Landscape constraints
+        }
+
+        ConstraintLayout(constraints) {
+            Button(
+                onClick = { /* Do something */ },
+                modifier = Modifier.layoutId("button") // decoupledConstraints에서 생성
+            ) {
+                Text("Button")
+            }
+
+            Text("Text", Modifier.layoutId("text"))
+        }
+    }
+}
+
+private fun decoupledConstraints(margin: Dp): ConstraintSet {
+    return ConstraintSet {
+        val button = createRefFor("button")
+        val text = createRefFor("text")
+
+        constrain(button) {
+            top.linkTo(parent.top, margin= margin)
+        }
+        constrain(text) {
+            top.linkTo(button.bottom, margin)
+        }
+    }
+}
+```
+
