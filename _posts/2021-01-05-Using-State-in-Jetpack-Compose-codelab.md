@@ -220,3 +220,165 @@ private fun TodoActivityScreen(todoViewModel: TodoViewModel) {
 `TodoScreen` 을 변경하여 `ViewModel`을 직접 가져올 수 있지만 재사용성이 약간 떨어짐
 
 `List<TodoItem>` 같은 심플한 파라미터를 선호함으로써, `TodoScreen`은 state가 hoist가 되는 특정위치에 결합되지 않음
+
+
+
+event를 위로 올리기
+
+```kotlin
+@Composable
+private fun TodoActivityScreen(todoViewModel: TodoViewModel) {
+   val items = listOf<TodoItem>()
+   TodoScreen(
+       items = items,
+       onAddItem = { todoViewModel.addItem(it) },
+       onRemoveItem = { todoViewModel.removeItem(it) }
+   )
+}
+```
+
+state 를 아래로 내리기 
+
+```kotlin
+@Composable
+private fun TodoActivityScreen(todoViewModel: TodoViewModel) {
+ 	 // 변경된 부분
+   val items: List<TodoItem> by todoViewModel.todoItems.observeAsState(listOf())
+   TodoScreen(
+       items = items,
+       onAddItem = { todoViewModel.addItem(it) },
+       onRemoveItem = { todoViewModel.removeItem(it) }
+   )
+}
+```
+
+- `val items: List<TodoItem>` , `List<TodoItem>` 타입의 `items` 변수를 선언
+- `todoViewModel.todoItems`, `ViewModel` 이 가지고 있는  `LiveData<List<TodoItem>>`
+
+- `.observeAsState` , `LiveData<T>` 를 옵저브하여 `State<T>` 객체로 변환하여, Compose 가 값의 변화에 반응할 수 있도록 함
+- `listOf()` 는 `LiveData` 초기화 되기전에 가능한 null 결과를 피하기위한 초기값, 만약 넘기지 않는 경우 `items` 는 nullable한 값을 가지게됨(`List<TodoItem>?`)
+
+- `by` 는 코틀린에서의 프로퍼티 델리게이트 문법, `State<List<TodoItem>>` 을 자동으로 unwrap 해서 `List<TodoItem>` 으로
+
+> observeAsState는 LiveData 를 옵저브하고, LiveData가 변경될 때마다 업데이트 되는 State 객체를 반환함
+>
+> composition에서 composable이 삭제되는 경우 자동으로 observe를 중지함
+
+
+
+## Memory in Compose
+
+이 섹션과 다음 섹션에 거쳐 stateful 한 composable을 만드는 방법을 배울 것 
+
+이 섹션에서는 composable 함수에 memory를 추가하는 방법을 살펴봄
+
+TodoRow가 추가될 때 마다 icon의 alpha값이 바뀌도록 요구사항이 들어옴
+
+TodoRow Composable 내 Icon의 tint가 랜덤으로 값이 바뀌도록 수정
+
+문제점
+
+- TodoRow를 추가할때마다 기존 리스트의 아이콘들의 alpha가 바뀜 
+
+  -> recomposotion 프로세스에서 `randomTint` 를 호출하기 때문에 
+
+**Recomposition** 은 새로운 입력으로 composable을 재 호출하여 compose tree를 업데이트 하는 프로세스 
+
+`TodoScreen` 이 새로운 리스트와 함께 호출될때, `LazyColumn` 이 화면의 모든 자식들을 recompose하게 됨
+
+이는 다시 `TodoRow` 를 호출하고, 새롭게 random tint를 생성 하게 됨
+
+
+
+Compose는 tree를 만드는데, Android View System의 UI tree와는 조금 다름
+
+UI 위젯의 트리 대신에, Compose는 composable 트리를 생성함
+
+`TodoScreen` 을 시각화 해보면 다음과 같음 
+
+<img src="/assets/10.png" width="500" >
+
+TodoRow의  recompose 때마다 icon이 업데이트 되는 이유는 TodoRow에 숨겨진 side-effect가 있기 때문
+
+side-effect는 composable 함수의 실행 외부에서 보이는 모든 변경 사항을 말함
+
+> Composable의 recompose는 side-effect가 없어야 함
+>
+> 예를 들어서, ViewModel에서 state 업데이트, Random.nextInt() 호출, 또는 db에 쓰기 모두 side-effect임 
+
+
+
+### Introducing memory to composable functions
+
+`TodoRow` 의 recompose 때마다 tint가 바뀌는 것은 원하지 않으므로. 마지막 composition에서 사용한 tint를 기억할 공간이 필요함.
+
+Compose 는 compostion tree에 값을 저장할 수 있게하므로, `TodoRow` 를 업데이트하여 `icomAlpha` 값을 composition tree에 저장할 수 있음 
+
+> **remember** 는 composable function memory를 제공
+>
+> **remember**가 계산한 값은 composition tree에 저장됨, 그리고 오직 **remeber**의 key가 변경될 때에만 재 계산 됨
+>
+> object에 private val 프로퍼티가 하는 것과 같은 방식으로, **remember** 가 단일 객체에 대한 저장소를 함수에 제공하는 것으로 생각할 수 있음
+
+```kotlin
+val iconAlpha = remember(todo.id) { randomTint() }
+```
+
+`TodoRow` 의 새로운 compose tree를 살펴보면, `iconAlpha` 가 compose tree에 추가된 것을 볼 수 있음
+
+<img src="/assets/11.png" width="500" >
+
+앱을 다시 실행하면, 리스트가 변경되어도 tint가 변경되지 않음을 확인할 수 있음
+
+recomposition이 일어나면, `remember`에 저장된 값이 반환 됨
+
+remember의 호출을 좀 더 들여다 보면 `key` 아규먼트에 `todo.id` 를 넘기는 것을 볼 수 있음
+
+remember의 호출은 두가지 부분으로 나뉨
+
+1. **key arguments** - remember가 사용하는 "key"
+2. **calculation** - 기억 할 새로운 값을 계산하는 람다
+
+첫번째 comose에서, remember는 항상 `randomTint` 를 호출하고 다음 recompostion 을 위해 결과를 기억함
+
+`TodoRow` 에 새로운 `todo.id` 가 전달되지 않는 한, 기억한 tint 값을 반환 함
+
+> idempotent(멱등) composable은 같은 input에 대해 항상 같은 결과를 냄, 그리고 recomposition에서 어떠한 side-effect가 없음
+>
+> Composalbe은 recomposition을 지원하기위해 idempotent 해야 함 
+
+
+
+### Making remembered value controllable
+
+`TodoRow` 의 호출자가 tint를 명시할 수 없는 문제가 있음
+
+caller가 해당 값을 컨트롤할 수 있게하기위해서는 단순하게 새로운 `iconAlpha` 파라미터의 기본인수로 remember 호출을 이동하면 됨
+
+```kotlin
+// AS-IS
+@Composable
+fun TodoRow(
+  todo: TodoItem, 
+  onItemClicked: (TodoItem) -> Unit, 
+  modifier: Modifier = Modifier
+) 
+
+// TO-BE
+@Composable
+fun TodoRow(
+   todo: TodoItem,
+   onItemClicked: (TodoItem) -> Unit,
+   modifier: Modifier = Modifier,
+   iconAlpha: Float = remember(todo.id) { randomTint() }
+)
+```
+
+`remember` 의 사용법에 미묘한 버그가 있음
+
+스크롤이 될 만큼 아이템을 추가하고나서 스크롤링 해보면, 화면에서 스크롤 할때 마다 아이콘의 alpha 값이 변함
+
+> Remember 는 Composition에 값을 저장하고, remember를 호출한 composable 이 제거되면 값을 제거함
+>
+> 이는 `Lazycolumn` 같은 자식을 추가하고 제거하는 composable 내부에 중요한 것들을 저장하기 위해 remember에 의존해서는 안된다는 것을 의미 
+
