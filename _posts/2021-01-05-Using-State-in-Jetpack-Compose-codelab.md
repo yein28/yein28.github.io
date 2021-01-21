@@ -382,3 +382,154 @@ fun TodoRow(
 >
 > 이는 `Lazycolumn` 같은 자식을 추가하고 제거하는 composable 내부에 중요한 것들을 저장하기 위해 remember에 의존해서는 안된다는 것을 의미 
 
+
+
+## State in Compose
+
+Composable에 state를 추가하기위해 memory를 사용하는 방법을 알아 볼 것
+
+<img src="/assets/12.png" width="500" >
+
+
+
+UI에서 텍스트를 편집하는 것은 stateful 함. 
+
+Android view system에서, 이 state는 `EditText` 내에 있으며 `onTExtChanged` 리스너를 통해서 노출됨, 
+
+하지만 compose는 단방향 데이터 플로우를 위해 설계되었기때문에 적합하지 않다. 
+
+> TextField is the compose equivalent to Material's EditText
+
+compose에서 `TextField` 는 stateless한 compsable 이다. `TodoScreen` 이 변화하는 todo 리스트를 보여주기만 하는 것 처럼, `TextField` 는 사용자가 알려주는 내용을 표시하고, 사용자가 입력할때 이벤트를 발행한다.
+
+> **Built-in composable 은 unidirection data flow를 위해 설계됨**
+>
+> 대부분의 빌트인 컴포저들블은 각 API에 대해 적어도 하나 이상의 stateless 버전을 제공함
+>
+> View system과 비교해서, 빌트인 composable은 편집가능한 텍스트와 같은 stateful UI 의 내부 state가 없는 옵션을 제공함
+>
+> 인는 앱과 component 사이에 중복되는 state를 방지함
+>
+> 예를들어, Compose에서는 CheckBox의 상태를 서버 베이스 API로 hoist 할 수 있따. 중복되는 상태 없이 (??)
+
+
+
+### Create a stateful TextField composable
+
+stateful 한 component를 만들어 볼것, editable `TextField` 를 보여주기위해 
+
+다음과 같은 함수를 `TodoScreen.kt` 에 추가
+
+```kotlin
+@Composable
+// 원래는 state를 hoist 해야하지만 하지 않음, 나중에 지울 함수임
+fun TodoInputTextField(modifier: Modifier) {
+  val (text, setText) = remember { mutableStateOf("") }
+  TodoInputText(text, setText, modifier)
+}
+```
+
+이 함수에서는 `remember` 를 사용해 memory를 추가함. 그리고 메모리에 `mutableStateOf` 를 저장해서 관찰가능한 state 홀더를 제공하는 Compose의 빌트인 타입 인 `MutableState<String> ` 을 만든다. 
+
+`TodoInputText` 에 바로 value와 setter를 넘길것이므로 `MutableState` 를 getter 와 setter로 분해 함
+
+>[`mutableStateOf`](https://developer.android.com/reference/kotlin/androidx/compose/runtime/package-summary#mutableStateOf(androidx.compose.runtime.mutableStateOf.T, androidx.compose.runtime.SnapshotMutationPolicy)) creates a [`MutableState`](https://developer.android.com/reference/kotlin/androidx/compose/runtime/MutableState) which is an observable state holder built into compose.
+>
+>```kotlin 
+>interface MutableState<T> : State <T> {
+>  override var value: T
+>}
+>```
+>
+>value에 변경이 일어나면 이 state를 읽는 모든  composable 함수가 자동으로 recompose 됨
+>
+>composable 내에서 MutableState 객체를 다음과 같은 세가지 방법으로 선언할 수 있음.
+>
+>1. val state = remember { mutableStateOf(default) }
+>2. var value by rememer { mutableStateOf(default) }
+>3. val (value, setValue) = remember { mutableStateOf(default) }
+>
+>composition에서 `State<T>` 를 만들때 (또는 다른 stateful한 객체들), `remember` 는 중요함
+>
+>remember 가 없으면 매 composition마다 재-초기화 될 것 
+>
+>`MutableState<T>` 는 `MutableLiveData<T>` 와 유사하지만, compose runtime 과 통합되었음(?)
+>
+>observable 하기 때문에,  it will tell compose whenever it's updated so compose can recompose any composables that read it.
+
+`TodoInputTextField` 에서 우리는 internal state를 만든 것
+
+
+
+### Make the button click add an item
+
+이제는 "Add" 버튼을 누르면 실제로 `TodoItem`을 추가하게 만들어 볼 것 
+
+이를 위해서는, `TodoInputTextField`로부터 `text`에 접근할 수 있어야 함
+
+<img src="/assets/13.png" width="500" >
+
+TodoInputItem composition tree
+
+`text` state가 `TodoItemInput` 에 노출 되어야 하고, 동시에 unidirectional data flow 를 사용해야 함
+
+`TodoItemInput` 의 state는 `TodoInputTextField` 로 
+
+`TodoInputTextField` event는 `TodoItemInput` 으로 
+
+이를 위해서 자식 컴포저블인 `TodoInputTextField` 에서 부모 인 `TodoItemInput` 으로 상태를 옮겨야 함 
+
+<img src="/assets/14.png" width="500" >
+
+이러한 패턴을 **state hoisting** 이라고 함
+
+상태를 hoist 하기위해 `TodoInputTextField` 에 (value, onValueChane) 파라미터를 추가
+
+```kotlin
+@Composable
+fun TodoInputTextField(text: String, onTextChange: (String) -> Unit, modifier: Modifier) {
+  TodoInputText(text, onTextChange, modifier)
+}
+```
+
+이렇게 상태가 hoist 되고나면, 몇가지 중요한 속성을 가짐
+
+- **Single source of truth** - 상태를 복제하는대신 이동함으로, 텍스트의 source 는 단 하나 뿐임을 보장. 버그 피할수있음
+- **Encapsulated** - 오직 `TodoInputItem` 만이  state를 변경할 수 있음, 다른 component에서는 `TodoItem`에 이벤트를 보낼 수 있음. 이렇게 hoisting 하면, 오직 하나의  composable 만이 stateful 함. 다른 composable 들이 해당 state를 사용하더라도
+- **Shareable** - immutable 한 값을 다수의 composable과 나눌 수 있음. 이 예제에서는 state를 `TodoInputTextField`와 `TodoEditButton` 에서 함께 사용 
+- **Interceptable** - `TodoItemInput` 이 state 를 변경하기 전에 이벤트를 무시하거나 수정할 수 있음.
+- **Decoupled** - `TodoInputTextField` 를 위한 state는 어디에던지 저장될 수 있음. `TodoInputTextField` 의 수정없이 문자를 입력할 때마다 업데이트 되는 Room db 를 통해 state를 지원하도록 선택할 수 있음
+
+
+
+이제 state를 `TodoItemInput` 에 추가하고 `TodoInputTextField`에 넘긴다.
+
+```kotlin 
+@Composable
+fun TodoItemInput(onItemComplete: (TodoItem) -> Unit) {
+   // state
+   val (text, setText) = remember { mutableStateOf("") }
+   Column {
+       Row(Modifier.padding(horizontal = 16.dp).padding(top = 16.dp)) {
+           TodoInputTextField(
+               text = text,
+               onTextChange = setText,
+               modifier = Modifier
+                   .weight(1f)
+                   .padding(end = 8.dp)
+           )
+           TodoEditButton(
+               // 동일한 state인 text를 사용
+               onClick = {
+                 onItemComplete(TodoItem(text)) // send onItemComplete event up
+       					 setText("") // clear the internal text 
+               },
+               text = "Add",
+               modifier = Modifier.align(Alignment.CenterVertically),
+               enabled = text.isNotBlank() // enable if text is not blank
+           )
+       }
+   }
+}
+```
+
