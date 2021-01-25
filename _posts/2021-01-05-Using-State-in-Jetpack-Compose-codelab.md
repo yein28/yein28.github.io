@@ -533,3 +533,23 @@ fun TodoItemInput(onItemComplete: (TodoItem) -> Unit) {
 }
 ```
 
+
+
+## Dynamic UI based on state
+
+state를 기반으로 동적인 UI를 구축할 것 
+
+ReComposibion은 새로운 데이터에 기반해 composition tree의 구조를 변경할 수 있음 
+
+
+
+compose 에서 "visibility" 프로퍼티는 존재 하지 않음
+
+compose는 동적으로 composition을 변경 할 수 있으므로 visibility를 gone으로 설정할 필요가 없음
+
+대신에 composition에서 composble 을 삭제하면 됨
+
+
+
+## Extracting stateless composable
+
