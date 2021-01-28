@@ -553,3 +553,73 @@ compose는 동적으로 composition을 변경 할 수 있으므로 visibility를
 
 ## Extracting stateless composable
 
+Statefull한 TodoItemInput Composable을 재 사용 하기위해 두가지 composable로 분리 
+
+- 상태를 가지는(statefull) TodoItemEntryInput() 
+- 상태를 가지고 있지 않은, 재사용할 수 있는 TodoItemInput()
+  - UI와 관련된 코드들을 가짐
+
+
+
+## Use State in ViewModel
+
+state를 호이스팅할때, state를 어디에 두어야할지 결정하는데 도움이 되는 세가지 규칙
+
+1. State는 적어도 state를 사용 또는 읽는 모든 composable들의 lowest common parent 까지는 호이스트되어야함 
+2. State는 적어도 변경될 수 있는(또는 수정될 수 있는) 최고 수준으로 hoist 해야 함
+3. 동일한 이벤트에 대해 두가지의 상태가 변경된다면 둘은 반드시 함께 hoist되어야 함
+
+
+
+### Convert TodoViewModel to use mutableStateOf
+
+이 섹션에서는 editor를 위한 상태를 `TodoViewModel` 에 추가할 것
+
+```kotlin
+// 새로운 MutableStateOf<List<TodoItems>> 를 만들고
+// 프로퍼티 delegate 문법을 사용해서 이를 일반 List<TodoItem> 으로 변환함 
+var todoItems: List<TodoItem> by mutableStateOf(listOf())
+    private set
+```
+
+`MutableState` 는 idiomatic Kotlin을 염두에 두고 빌드됨, 그리고 property delegate 문법을 지원함
+
+Composable에서도 사용할 수 있지만, `ViewModel` 같은 stateful 클래스 내에서도 사용할 수 있음
+
+> ViewModel이 기존 view system에서도 사용된다면, 기존의 LiveData를 계속 사용하는 것 이 좋음
+>
+> Mutable state는 Compose가 읽으려고 사용
+
+
+
+### Define editor state
+
+이제 eidtor를 위해 state 를 추가할 것
+
+todo text가 중복되는 것을 방지하기위해 list를 직접 편집할 것
+
+```kotlin
+class TodoViewModel : ViewModel() {
+  private var currentEditPosition by mutableStateOf(-1)
+  
+  var todoItems by mutableStateOf(listOf())
+  	private set
+  
+  val currentEditItem: TodoItem?
+  	get() = todoItems.getOrNull(currentEditPosition)
+}
+```
+
+composable이 `currentEditItem` 을 호출할 때마다, `todoItems` 와 `currentEditPosition`  모두의 변경을 observe 함 
+
+둘중 하나의 값이 변경되면, composable이 새로운 값을 get 함
+
+functional transform에 익숙하다면,  currentEditItem 은 currentEditPosition과 todoItems 모두에 의존하고, zip을 사용해서 결합하는 것과 동일
+
+> State<T> transgormations이 동작하려면, 반드시 State<T> 객체로부터 state를 읽어야함
+>
+> currentEditPosition 을 일반적인 Int로 선언했다면, Compose에서는 변경사항을 관찰할 수 없음
+
+
+
+## Reuse stateless composables
